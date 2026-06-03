@@ -1,4 +1,3 @@
-
 (() => {
   const cv = document.getElementById('cv');
   const ctx = cv.getContext('2d');
@@ -82,7 +81,7 @@
       vx:0, vy:0,
       w:36, h:56,
       drift:0,
-      inv:0
+      inv:2000
     };
     camY=0; timeMs=0; lap=1; lapStartMs=0; lastCheckpoint=false;
     coins=[]; obstacles=[]; particles=[]; skidMarks=[];
@@ -97,6 +96,12 @@
     const nCoins=24, nObs=14;
     for(let i=0;i<nCoins;i++) spawnCoin(i/(nCoins)*Math.PI*2*Math.max(1,Math.random()));
     for(let i=0;i<nObs;i++) spawnObstacle((i+0.5)/nObs*Math.PI*2);
+    // Remove obstáculos muito perto da largada
+    const startT = -Math.PI/2;
+    obstacles = obstacles.filter(o=>{
+      let d = Math.abs(((o.t - startT + Math.PI) % (2*Math.PI)) - Math.PI);
+      return d > 0.7;
+    });
   }
 
   function pointOnTrack(t, lane=0.5){
