@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<!-- Playables SDK -->
+<script>// Playables SDK v1.0.0
+// Game lifecycle bridge: rAF-based game-ready detection + event communication
+(function() {
+  'use strict';
+
+  // Idempotency: skip if already initialized (e.g., server-side injection
+  // followed by client-side inject-javascript via the Bloks webview component).
+  if (window.playablesSDK) return;
+
+  var HANDLER_NAME = 'playablesGameEventHandler';
+  var ANDROID_BRIDGE_NAME = '_MetaPlayablesBridge';
+  var RAF_FRAME_THRESHOLD = 3;
+
+  var gameReadySent = false;
+  var firstInteractionSent = false;
+  var errorSent = false;
+  var frameCount = 0;
+  var originalRAF = window.requestAnimationFrame;
+
+  // --- Transport Layer ---
+
+  function hasIOSBridge() {
+    return !!(window.webkit &&
+              window.webkit.messageHandlers &&
+              window.webkit.messageHandlers[HANDLER_NAME]);
+  }
+
+  function hasAndroidBridge() {
+    return !!(window[ANDROID_BRIDGE_NAME] &&
+              typeof window[ANDROID_BRIDGE_NAME].postEvent === 'function');
+  }
+
+  function isInIframe() {
+    return !!(window.parent && window.parent !== window);
+  }
+
+  function sendEvent(eventName, payload) {
+    var message = {
+      type: eventName,
+      payload: payload || {},
+      timestamp: Date.now()
+    };
+
+    if (hasIOSBridge()) {
+      try {
+        window.webkit.messageHandlers[HANDLER_NAME].postMessage(message);
+      } catch (e) { /* ignore */ }
+      return;
+    }
+
+    if (hasAndroidBridge()) {
+    try {
+      var p = payload || {};
+      p.__secureToken = window.__fbAndroidBridgeAuthToken || '';
+      p.timestamp = message.timestamp;
+      window[ANDROID_BRIDGE_NAME].postEvent(
+        eventName,
+        JSON.stringify(p)
+      );
+    } catch (e) { /* ignore */ }
+    return;
+  }
+
+    if (isInIframe()) {
+      try {
+        window.parent.postMessage(message, '*');
+      } catch (e) { /* ignore */ }
+      return;
+    }
+  }
+
+  // --- rAF Game-Ready Detection ---
+
+  function onFrame() {
+    if (gameReadySent) return;
+
+    frameCount++;
+    if (frameCount >= RAF_FRAME_THRESHOLD) {
+      gameReadySent = true;
+      sendEvent('game_ready', {
+        frame_count: frameCount,
+        detected_at: Date.now()
+      });
+      return;
+    }
+
+    originalRAF.call(window, onFrame);
+  }
+
+  if (originalRAF) {
+    window.requestAnimationFrame = function(callback) {
+      if (!gameReadySent) {
+        return originalRAF.call(window, function(timestamp) {
+          frameCount++;
+          if (frameCount >= RAF_FRAME_THRESHOLD && !gameReadySent) {
+            gameReadySent = true;
+            sendEvent('game_ready', {
+              frame_count: frameCount,
+              detected_at: Date.now()
+            });
+          }
+          callback(timestamp);
+        });
+      }
+      return originalRAF.call(window, callback);
+    };
+  }
+
+  // --- First User Interaction Detection ---
+
+  function setupFirstInteractionDetection() {
+    var events = ['touchstart', 'mousedown', 'keydown'];
+
+    function onFirstInteraction() {
+      if (firstInteractionSent) return;
+      firstInteractionSent = true;
+      sendEvent('user_interaction_start', null);
+
+      for (var i = 0; i < events.length; i++) {
+        document.removeEventListener(events[i], onFirstInteraction, true);
+      }
+    }
+
+    for (var i = 0; i < events.length; i++) {
+      document.addEventListener(events[i], onFirstInteraction, true);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', setupFirstInteractionDetection);
+  } else {
+    setupFirstInteractionDetection();
+  }
+
+  // --- Auto Error Capture ---
+
+  window.addEventListener('error', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    sendEvent('error', {
+      message: event.message || 'Unknown error',
+      source: event.filename || '',
+      lineno: event.lineno || 0,
+      colno: event.colno || 0,
+      auto_captured: true
+    });
+  });
+
+  window.addEventListener('unhandledrejection', function(event) {
+    if (errorSent) return;
+    errorSent = true;
+    var reason = event.reason;
+    sendEvent('error', {
+      message: (reason instanceof Error) ? reason.message : String(reason),
+      type: 'unhandled_promise_rejection',
+      auto_captured: true
+    });
+  });
+
+  // --- Public API ---
+
+  window.playablesSDK = {
+    complete: function(score) {
+      sendEvent('game_ended', {
+        score: score,
+        completed: true
+      });
+    },
+
+    error: function(message) {
+      if (errorSent) return;
+      errorSent = true;
+      sendEvent('error', {
+        message: message || 'Unknown error',
+        auto_captured: false
+      });
+    },
+
+    sendEvent: function(eventName, payload) {
+      if (!eventName || typeof eventName !== 'string') return;
+      sendEvent(eventName, payload);
+    }
+  };
+
+  // Kick off rAF detection in case no game code calls rAF immediately
+  if (originalRAF) {
+    originalRAF.call(window, onFrame);
+  }
+})();</script>
+<!-- PLAYABLE_TOUCH_PATCH_V1 --><script>
+(function() {
+  if (window.__playableTouchPatchInstalled) return;
+  window.__playableTouchPatchInstalled = true;
+  var origAdd = EventTarget.prototype.addEventListener;
+  var blockedTypes = { touchstart: 1, touchmove: 1, wheel: 1 };
+  EventTarget.prototype.addEventListener = function(type, listener, options) {
+    if (blockedTypes[type]) {
+      if (options === undefined || options === null) {
+        options = { passive: true };
+      } else if (typeof options === 'boolean') {
+        options = { capture: options, passive: true };
+      } else {
+        options = Object.assign({}, options, { passive: true });
+      }
+    }
+    return origAdd.call(this, type, listener, options);
+  };
+})();
+</script><script>window.Intl=window.Intl||{};Intl.t=function(s){return(Intl._locale&&Intl._locale[s])||s;};</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Corrida de Carrinho</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="game">
+  <canvas id="cv"></canvas>
+
+  <div class="hud">
+    <div class="pill"><span class="ico">🪙</span><span id="coins">0</span></div>
+    <div class="pill"><span class="ico">⏱️</span><span id="time">00:00</span></div>
+    <div class="pill"><span class="ico">🏁</span><span id="lap">1/3</span></div>
+    <div class="pill" id="shopBtn" style="pointer-events:auto;cursor:pointer">🛒 <b>Loja</b></div>
+    <div class="pill" id="pauseBtn" style="pointer-events:auto;cursor:pointer">⏸️</div>
+  </div>
+
+  <div class="drift" id="driftTxt">DRIFT!</div>
+  <div class="lapflag" id="lapFlag">VOLTA 2</div>
+
+  <div class="controls">
+    <div class="btn" id="leftBtn"><span>◀️</span></div>
+    <div class="btn" id="rightBtn"><span>▶️</span></div>
+  </div>
+
+  <div class="screen" id="startScreen">
+    <div class="card">
+      <h1>🏎️ Corrida de Carrinho</h1>
+      <div class="subtitle">Derrape, colete moedas e desvie dos cones!</div>
+      <div class="stats">
+        <div class="stat"><b id="bestLap">--</b><span>Melhor Volta</span></div>
+        <div class="stat"><b id="totalCoins">0</b><span>Moedas</span></div>
+        <div class="stat"><b id="skinName">Clássico</b><span>Carro</span></div>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <button class="btn-primary" id="playBtn">JOGAR</button>
+        <button class="btn-secondary" id="openShopBtn">LOJA</button>
+      </div>
+      <div style="font-size:13px;opacity:.6">Toque esquerda/direita para esterçar • Acelera automático</div>
+    </div>
+  </div>
+
+  <div class="screen hidden" id="gameOverScreen">
+    <div class="card">
+      <h1 id="endTitle">FIM DE JOGO</h1>
+      <div class="subtitle" id="endSub">Você bateu!</div>
+      <div class="stats">
+        <div class="stat"><b id="endTime">00:00</b><span>Tempo</span></div>
+        <div class="stat"><b id="endCoins">0</b><span>Moedas</span></div>
+        <div class="stat"><b id="endLaps">1</b><span>Voltas</span></div>
+      </div>
+      <div class="row">
+        <button class="btn-primary" id="retryBtn">REJOGAR</button>
+        <button class="btn-secondary" id="menuBtn">MENU</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="screen hidden" id="shopScreen">
+    <div class="card">
+      <div class="topbar">
+        <h2>🛒 Loja de Skins</h2>
+        <button class="close" id="closeShop">Fechar</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;background:#0b1222;border-radius:12px;padding:10px 14px;margin-bottom:10px">
+        <div style="opacity:.8">Suas moedas</div>
+        <div style="font-weight:900;font-size:20px">🪙 <span id="shopCoins">0</span></div>
+      </div>
+      <div class="shop" id="shopGrid"></div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
