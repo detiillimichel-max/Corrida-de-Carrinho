@@ -8,4 +8,4 @@ Fases 1-9
 
 Controles
 • Toque e segure para mover contínuo • O carro é desenhado de frente, não é emoji 
-Jogar agora:
+Jogar agora: detiillimichel-max.github.io/Corrida-de-Carrinho/
